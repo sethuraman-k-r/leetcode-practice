@@ -119,51 +119,11 @@
     </div>
 
     <script>
-      // ─── Sample problems ─────────────────────────────────────────────────────
-      const SAMPLE_PROBLEMS = [
-        {
-          task_id: "add-two-numbers",
-          question_id: 2,
-          difficulty: "Medium",
-          tags: ["Recursion", "Linked List", "Math"],
-          problem_description:
-            "You are given two non-empty linked lists representing two non-negative integers. The digits are stored in reverse order, and each of their nodes contains a single digit. Add the two numbers and return the sum as a linked list.\n\nExample 1:\n\nInput: l1 = [2,4,3], l2 = [5,6,4]\nOutput: [7,0,8]\nExplanation: 342 + 465 = 807.\n\nExample 2:\n\nInput: l1 = [0], l2 = [0]\nOutput: [0]\n\nExample 3:\n\nInput: l1 = [9,9,9,9,9,9,9], l2 = [9,9,9,9]\nOutput: [8,9,9,9,0,0,0,1]\n\nConstraints:\n\nThe number of nodes in each linked list is in the range [1, 100].\n0 <= Node.val <= 9\nIt is guaranteed that the list represents a number that does not have leading zeros.",
-          starter_code:
-            "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def addTwoNumbers(self, l1, l2):\n        ",
-          completion:
-            "class Solution:\n    def addTwoNumbers(self, l1, l2):\n        dummy_head = ListNode(0)\n        current = dummy_head\n        carry = 0\n        while l1 is not None or l2 is not None or carry != 0:\n            val1 = l1.val if l1 is not None else 0\n            val2 = l2.val if l2 is not None else 0\n            carry, out = divmod(val1 + val2 + carry, 10)\n            current.next = ListNode(out)\n            current = current.next\n            if l1 is not None: l1 = l1.next\n            if l2 is not None: l2 = l2.next\n        return dummy_head.next",
-          entry_point: "Solution().addTwoNumbers",
-          input_output: [
-            { input: "l1 = [2,4,3], l2 = [5,6,4]", output: "[7, 0, 8]" },
-            { input: "l1 = [9,9,9,9,9,9,9], l2 = [9,9,9,9]", output: "[8, 9, 9, 9, 0, 0, 0, 1]" },
-            { input: "l1 = [0], l2 = [0]", output: "[0]" },
-          ],
-          test: "def check(candidate):\n    assert is_same_list(candidate(l1 = list_node([2,4,3]), l2 = list_node([5,6,4])), list_node([7,0,8]))",
-        },
-        {
-          task_id: "two-sum",
-          question_id: 1,
-          difficulty: "Easy",
-          tags: ["Array", "Hash Table"],
-          problem_description:
-            "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.\n\nYou can return the answer in any order.\n\nExample 1:\nInput: nums = [2,7,11,15], target = 9\nOutput: [0,1]\n\nExample 2:\nInput: nums = [3,2,4], target = 6\nOutput: [1,2]\n\nConstraints:\n2 <= nums.length <= 10^4\n-10^9 <= nums[i] <= 10^9",
-          starter_code:
-            "class Solution:\n    def twoSum(self, nums, target):\n        ",
-          completion:
-            "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n        for i, num in enumerate(nums):\n            need = target - num\n            if need in seen:\n                return [seen[need], i]\n            seen[num] = i",
-          entry_point: "Solution().twoSum",
-          input_output: [
-            { input: "nums = [2,7,11,15], target = 9", output: "[0, 1]" },
-            { input: "nums = [3,2,4], target = 6", output: "[1, 2]" },
-            { input: "nums = [3,3], target = 6", output: "[0, 1]" },
-          ],
-          test: "def check(candidate):\n    assert candidate([2,7,11,15], 9) == [0, 1]",
-        },
-      ];
-
       // ─── State ───────────────────────────────────────────────────────────────
-      let problems = normalizeProblems(SAMPLE_PROBLEMS);
-      let selectedProblemId = problems[0]?.id;
+      let problems = [];           // metadata only (from problems-index.json)
+      let problemCache = {};       // full problem data keyed by question_id
+      let selectedProblemId = null;
+      let loadedProblem = null;    // currently displayed full problem
       let monacoEditor = null;
       let monacoReady = false;
       let monacoQueue = [];
@@ -195,11 +155,23 @@
       };
 
       // ─── Utilities ────────────────────────────────────────────────────────────
-      function normalizeProblems(raw) {
+      function normalizeMetadata(raw) {
         return raw.map((item, i) => ({
-          ...item,
-          id: String(item.task_id || item.question_id || i),
+          id: String(item.question_id || item.task_id || i),
+          question_id: item.question_id,
+          task_id: item.task_id || "",
           title: toTitle(item.task_id || `Problem ${item.question_id || i + 1}`),
+          difficulty: item.difficulty || "Unknown",
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          preview: item.preview || "",
+        }));
+      }
+
+      function normalizeFullProblem(item) {
+        return {
+          ...item,
+          id: String(item.question_id || item.task_id),
+          title: toTitle(item.task_id || `Problem ${item.question_id}`),
           difficulty: item.difficulty || "Unknown",
           tags: Array.isArray(item.tags) ? item.tags : [],
           problem_description: item.problem_description || "",
@@ -208,7 +180,7 @@
           test: item.test || "",
           input_output: Array.isArray(item.input_output) ? item.input_output : [],
           entry_point: item.entry_point || "",
-        }));
+        };
       }
 
       function toTitle(v) {
@@ -502,7 +474,7 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
       }
 
       async function runTests(mode) {
-        const problem = problems.find(p => p.id === selectedProblemId);
+        const problem = loadedProblem;
         if (!problem) return;
 
         const userCode = monacoEditor ? monacoEditor.getValue() : "";
@@ -630,7 +602,7 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
         const difficulty = els.difficultyFilter.value;
         const tag = els.tagFilter.value;
         return problems.filter(p => {
-          const s = [p.task_id, p.question_id, p.title, p.difficulty, p.problem_description, p.tags.join(" ")].join(" ").toLowerCase();
+          const s = [p.task_id, p.question_id, p.title, p.difficulty, p.preview, p.tags.join(" ")].join(" ").toLowerCase();
           return (!search || s.includes(search)) &&
             (difficulty === "all" || p.difficulty === difficulty) &&
             (tag === "all" || p.tags.includes(tag));
@@ -653,7 +625,8 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
         }
 
         if (!filtered.some(p => p.id === selectedProblemId)) {
-          selectedProblemId = filtered[0].id;
+          selectProblem(filtered[0].id);
+          return;
         }
 
         els.problemList.innerHTML = filtered.map(p => {
@@ -670,15 +643,14 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
                 </div>
                 <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${difficultyClass(p.difficulty)}">${escapeHtml(p.difficulty)}</span>
               </div>
-              <p class="line-clamp-2 text-sm leading-6 text-slate-600">${escapeHtml(p.problem_description).slice(0, 170)}…</p>
+              <p class="line-clamp-2 text-sm leading-6 text-slate-600">${escapeHtml(p.preview || "").slice(0, 170)}…</p>
               <div class="mt-3 flex flex-wrap gap-1.5">
                 ${p.tags.slice(0, 4).map(t => `<span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">${escapeHtml(t)}</span>`).join("")}
               </div>
             </button>`;
         }).join("");
 
-        const selected = problems.find(p => p.id === selectedProblemId);
-        renderProblemDetail(selected);
+        renderProblemDetail(loadedProblem);
       }
 
       function renderProblemDetail(problem) {
@@ -775,10 +747,48 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
           </div>`;
       }
 
-      // ─── Event handlers ───────────────────────────────────────────────────────
-      function selectProblem(id) {
+      // ─── Problem loading ──────────────────────────────────────────────────────
+      async function selectProblem(id) {
         selectedProblemId = id;
         renderProblemList();
+
+        const meta = problems.find(p => p.id === id);
+        if (!meta) return;
+        const qid = meta.question_id;
+
+        if (problemCache[qid]) {
+          loadedProblem = problemCache[qid];
+          renderProblemDetail(loadedProblem);
+          return;
+        }
+
+        // Show loading state
+        els.problemDetail.innerHTML = `
+          <div class="flex min-h-[30vh] items-center justify-center text-slate-400">
+            <div class="text-center">
+              <div class="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-500"></div>
+              <p class="text-sm">Loading problem…</p>
+            </div>
+          </div>`;
+        els.codeEditorSection.classList.add("hidden");
+        els.extraSections.classList.add("hidden");
+
+        try {
+          const res = await fetch(`./data/problems/${qid}.json`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const raw = await res.json();
+          const full = normalizeFullProblem(raw);
+          problemCache[qid] = full;
+          if (selectedProblemId === id) {
+            loadedProblem = full;
+            renderProblemDetail(full);
+          }
+        } catch (e) {
+          els.problemDetail.innerHTML = `
+            <div class="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+              Failed to load problem #${qid}: ${escapeHtml(e.message)}
+            </div>`;
+        }
       }
 
       els.searchBox.addEventListener("input", renderProblemList);
@@ -799,22 +809,29 @@ def run_cases(user_code, method_name, cases_json, capture_stdout=False):
       });
 
       // ─── Init ─────────────────────────────────────────────────────────────────
-      async function loadProblemsFromJsonFile(url = "./problems.json") {
+      async function loadProblemsIndex() {
         try {
-          const res = await fetch(url);
-          if (!res.ok) return;
+          const res = await fetch("./data/problems-index.json");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const raw = await res.json();
-          problems = normalizeProblems(Array.isArray(raw) ? raw : raw.problems || []);
-          selectedProblemId = problems[0]?.id;
+          problems = normalizeMetadata(Array.isArray(raw) ? raw : []);
           renderFilters();
-          renderProblemList();
-        } catch (_) {}
+          if (problems.length) {
+            selectProblem(problems[0].id);
+          } else {
+            renderProblemList();
+          }
+        } catch (e) {
+          els.problemDetail.innerHTML = `
+            <div class="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-700">
+              Failed to load problem index: ${escapeHtml(e.message)}
+            </div>`;
+        }
       }
 
       initMonaco();
-      renderFilters();
-      renderProblemList();
-      loadProblemsFromJsonFile("./problems.json");
+      els.problemDetail.innerHTML = emptyState();
+      loadProblemsIndex();
     </script>
   </body>
 </html>
