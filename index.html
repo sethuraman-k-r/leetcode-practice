@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LeetCode Problem Browser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+              mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
+            },
+            boxShadow: { soft: "0 18px 45px rgba(15, 23, 42, 0.08)" },
+          },
+        },
+      };
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 text-slate-900">
+    <div class="mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 py-6 lg:px-6">
+      <header class="mb-6 overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 p-6 text-white shadow-soft">
+        <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p class="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-indigo-200">Problem Bank</p>
+            <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">LeetCode JSON Browser</h1>
+            <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+              Select a problem, write your Python solution in the editor, and run test cases right in the browser.
+            </p>
+          </div>
+          <div class="grid grid-cols-3 gap-3 text-center">
+            <div class="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">
+              <p id="totalProblems" class="text-2xl font-bold">0</p>
+              <p class="text-xs text-slate-300">Problems</p>
+            </div>
+            <div class="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">
+              <p id="visibleProblems" class="text-2xl font-bold">0</p>
+              <p class="text-xs text-slate-300">Visible</p>
+            </div>
+            <div class="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur">
+              <p id="tagCount" class="text-2xl font-bold">0</p>
+              <p class="text-xs text-slate-300">Tags</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="grid min-w-0 flex-1 gap-6 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+        <!-- Sidebar -->
+        <aside class="min-w-0 rounded-3xl bg-white p-4 shadow-soft lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:overflow-hidden lg:flex lg:flex-col">
+          <div class="mb-4 grid gap-3">
+            <label class="text-sm font-semibold text-slate-700" for="searchBox">Search problems</label>
+            <input
+              id="searchBox"
+              type="search"
+              placeholder="Search by title, id, tag, description..."
+              class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+            />
+          </div>
+          <div class="mb-4 grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700" for="difficultyFilter">Difficulty</label>
+              <select id="difficultyFilter" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100">
+                <option value="all">All</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700" for="tagFilter">Tag</label>
+              <select id="tagFilter" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100">
+                <option value="all">All</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3 flex items-center justify-between">
+            <h2 class="text-base font-bold">Problems</h2>
+            <button id="resetFilters" class="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-200">Reset</button>
+          </div>
+          <div id="problemList" class="flex-1 space-y-3 overflow-y-auto pr-1"></div>
+        </aside>
+
+        <!-- Right column: stacked cards -->
+        <div class="flex min-w-0 flex-col gap-6">
+          <!-- Problem statement -->
+          <section id="problemDetail" class="min-w-0 overflow-hidden rounded-3xl bg-white p-4 shadow-soft sm:p-6"></section>
+
+          <!-- Code editor (persists across problem switches) -->
+          <section id="codeEditorSection" class="hidden min-w-0 overflow-hidden rounded-3xl bg-white shadow-soft">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <h3 class="text-lg font-bold text-slate-950">Solution</h3>
+              <div class="flex items-center gap-2">
+                <button id="resetCodeBtn" title="Reset to starter code" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                  ↺ Reset
+                </button>
+                <button id="testBtn" class="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  ▷ Test
+                </button>
+                <button id="submitBtn" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
+                  ✓ Submit All
+                </button>
+              </div>
+            </div>
+            <div id="editorContainer" style="height: 420px;"></div>
+            <div class="border-t border-slate-200 px-5 py-4">
+              <div id="runStatus" class="hidden mb-3 rounded-xl px-4 py-2.5 text-sm font-medium"></div>
+              <div id="testResults"></div>
+            </div>
+          </section>
+
+          <!-- Reference / extra collapsible sections -->
+          <section id="extraSections" class="hidden min-w-0 overflow-hidden rounded-3xl bg-white p-4 shadow-soft sm:p-6">
+            <div id="extraSectionsContent" class="grid gap-4"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // ─── Sample problems ─────────────────────────────────────────────────────
+      const SAMPLE_PROBLEMS = [
+        {
+          task_id: "add-two-numbers",
+          question_id: 2,
+          difficulty: "Medium",
+          tags: ["Recursion", "Linked List", "Math"],
+          problem_description:
+            "You are given two non-empty linked lists representing two non-negative integers. The digits are stored in reverse order, and each of their nodes contains a single digit. Add the two numbers and return the sum as a linked list.\n\nExample 1:\n\nInput: l1 = [2,4,3], l2 = [5,6,4]\nOutput: [7,0,8]\nExplanation: 342 + 465 = 807.\n\nExample 2:\n\nInput: l1 = [0], l2 = [0]\nOutput: [0]\n\nExample 3:\n\nInput: l1 = [9,9,9,9,9,9,9], l2 = [9,9,9,9]\nOutput: [8,9,9,9,0,0,0,1]\n\nConstraints:\n\nThe number of nodes in each linked list is in the range [1, 100].\n0 <= Node.val <= 9\nIt is guaranteed that the list represents a number that does not have leading zeros.",
+          starter_code:
+            "# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def addTwoNumbers(self, l1, l2):\n        ",
+          completion:
+            "class Solution:\n    def addTwoNumbers(self, l1, l2):\n        dummy_head = ListNode(0)\n        current = dummy_head\n        carry = 0\n        while l1 is not None or l2 is not None or carry != 0:\n            val1 = l1.val if l1 is not None else 0\n            val2 = l2.val if l2 is not None else 0\n            carry, out = divmod(val1 + val2 + carry, 10)\n            current.next = ListNode(out)\n            current = current.next\n            if l1 is not None: l1 = l1.next\n            if l2 is not None: l2 = l2.next\n        return dummy_head.next",
+          entry_point: "Solution().addTwoNumbers",
+          input_output: [
+            { input: "l1 = [2,4,3], l2 = [5,6,4]", output: "[7, 0, 8]" },
+            { input: "l1 = [9,9,9,9,9,9,9], l2 = [9,9,9,9]", output: "[8, 9, 9, 9, 0, 0, 0, 1]" },
+            { input: "l1 = [0], l2 = [0]", output: "[0]" },
+          ],
+          test: "def check(candidate):\n    assert is_same_list(candidate(l1 = list_node([2,4,3]), l2 = list_node([5,6,4])), list_node([7,0,8]))",
+        },
+        {
+          task_id: "two-sum",
+          question_id: 1,
+          difficulty: "Easy",
+          tags: ["Array", "Hash Table"],
+          problem_description:
+            "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.\n\nYou can return the answer in any order.\n\nExample 1:\nInput: nums = [2,7,11,15], target = 9\nOutput: [0,1]\n\nExample 2:\nInput: nums = [3,2,4], target = 6\nOutput: [1,2]\n\nConstraints:\n2 <= nums.length <= 10^4\n-10^9 <= nums[i] <= 10^9",
+          starter_code:
+            "class Solution:\n    def twoSum(self, nums, target):\n        ",
+          completion:
+            "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n        for i, num in enumerate(nums):\n            need = target - num\n            if need in seen:\n                return [seen[need], i]\n            seen[num] = i",
+          entry_point: "Solution().twoSum",
+          input_output: [
+            { input: "nums = [2,7,11,15], target = 9", output: "[0, 1]" },
+            { input: "nums = [3,2,4], target = 6", output: "[1, 2]" },
+            { input: "nums = [3,3], target = 6", output: "[0, 1]" },
+          ],
+          test: "def check(candidate):\n    assert candidate([2,7,11,15], 9) == [0, 1]",
+        },
+      ];
+
+      // ─── State ───────────────────────────────────────────────────────────────
+      let problems = normalizeProblems(SAMPLE_PROBLEMS);
+      let selectedProblemId = problems[0]?.id;
+      let monacoEditor = null;
+      let monacoReady = false;
+      let monacoQueue = [];
+      let pyodideInstance = null;
+      let pyodideLoading = false;
+      let pyodideQueue = [];
+      let currentStarterCode = "";
+
+      // ─── DOM refs ─────────────────────────────────────────────────────────────
+      const els = {
+        searchBox: document.getElementById("searchBox"),
+        difficultyFilter: document.getElementById("difficultyFilter"),
+        tagFilter: document.getElementById("tagFilter"),
+        resetFilters: document.getElementById("resetFilters"),
+        problemList: document.getElementById("problemList"),
+        problemDetail: document.getElementById("problemDetail"),
+        totalProblems: document.getElementById("totalProblems"),
+        visibleProblems: document.getElementById("visibleProblems"),
+        tagCount: document.getElementById("tagCount"),
+        codeEditorSection: document.getElementById("codeEditorSection"),
+        extraSections: document.getElementById("extraSections"),
+        extraSectionsContent: document.getElementById("extraSectionsContent"),
+        editorContainer: document.getElementById("editorContainer"),
+        runStatus: document.getElementById("runStatus"),
+        testResults: document.getElementById("testResults"),
+        testBtn: document.getElementById("testBtn"),
+        submitBtn: document.getElementById("submitBtn"),
+        resetCodeBtn: document.getElementById("resetCodeBtn"),
+      };
+
+      // ─── Utilities ────────────────────────────────────────────────────────────
+      function normalizeProblems(raw) {
+        return raw.map((item, i) => ({
+          ...item,
+          id: String(item.task_id || item.question_id || i),
+          title: toTitle(item.task_id || `Problem ${item.question_id || i + 1}`),
+          difficulty: item.difficulty || "Unknown",
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          problem_description: item.problem_description || "",
+          starter_code: item.starter_code || "",
+          completion: item.completion || "",
+          test: item.test || "",
+          input_output: Array.isArray(item.input_output) ? item.input_output : [],
+          entry_point: item.entry_point || "",
+        }));
+      }
+
+      function toTitle(v) {
+        return String(v).replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      function escapeHtml(v) {
+        return String(v ?? "")
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+      }
+
+      function difficultyClass(d) {
+        const k = String(d).toLowerCase();
+        if (k === "easy") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+        if (k === "medium") return "bg-amber-50 text-amber-700 ring-amber-200";
+        if (k === "hard") return "bg-rose-50 text-rose-700 ring-rose-200";
+        return "bg-slate-50 text-slate-700 ring-slate-200";
+      }
+
+      function formatProblemDescription(text) {
+        const escaped = escapeHtml(text).replace(/ /g, " ");
+        const lines = escaped.split(/\n/);
+        const chunks = [];
+        let inCode = false, codeLines = [];
+        const flushCode = () => {
+          if (codeLines.length) {
+            chunks.push(`<pre class="my-4 max-w-full overflow-x-auto rounded-2xl bg-slate-950 p-4 text-sm leading-6 text-slate-100"><code>${codeLines.join("\n")}</code></pre>`);
+            codeLines = [];
+          }
+        };
+        lines.forEach(line => {
+          const t = line.trim();
+          const looksCode = /^(Input:|Output:|Explanation:)/.test(t) || /^[a-zA-Z_]+\s*=/.test(t);
+          const isHeading = /^(Example \d+:|Constraints:|Follow-up:)$/.test(t);
+          if (!t) { flushCode(); inCode = false; return; }
+          if (isHeading) {
+            flushCode(); inCode = false;
+            chunks.push(`<h3 class="mt-6 text-base font-bold text-slate-900">${t}</h3>`);
+          } else if (looksCode) { inCode = true; codeLines.push(t); }
+          else if (inCode) { codeLines.push(t); }
+          else if (/^[-*]?\s*(\d+\s*&lt;=|0\s*&lt;=|It is|The number)/.test(t)) {
+            chunks.push(`<li class="ml-5 list-disc text-slate-700">${t}</li>`);
+          } else {
+            chunks.push(`<p class="mt-3 leading-7 text-slate-700">${t}</p>`);
+          }
+        });
+        flushCode();
+        return chunks.join("");
+      }
+
+      function codeBlock(title, code) {
+        if (!code) return "";
+        return `
+          <details class="group rounded-2xl border border-slate-200 bg-slate-50">
+            <summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-bold text-slate-800">
+              <span>${escapeHtml(title)}</span>
+              <span class="text-xs font-semibold text-slate-500 group-open:hidden">Show</span>
+              <span class="hidden text-xs font-semibold text-slate-500 group-open:inline">Hide</span>
+            </summary>
+            <pre class="max-h-[28rem] max-w-full overflow-auto border-t border-slate-200 bg-slate-950 p-4 text-sm leading-6 text-slate-100 rounded-b-2xl"><code>${escapeHtml(code)}</code></pre>
+          </details>`;
+      }
+
+      // ─── Monaco Editor ────────────────────────────────────────────────────────
+      function initMonaco() {
+        require.config({
+          paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs" },
+        });
+        window.MonacoEnvironment = {
+          getWorkerUrl() {
+            const blob = new Blob([
+              `self.MonacoEnvironment={baseUrl:"https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/"};` +
+              `importScripts("https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/base/worker/workerMain.js");`
+            ], { type: "text/javascript" });
+            return URL.createObjectURL(blob);
+          },
+        };
+        require(["vs/editor/editor.main"], () => {
+          monacoEditor = monaco.editor.create(els.editorContainer, {
+            value: "# Select a problem to start coding",
+            language: "python",
+            theme: "vs-dark",
+            minimap: { enabled: false },
+            fontSize: 13,
+            lineHeight: 22,
+            padding: { top: 14, bottom: 14 },
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            fontFamily: "'JetBrains Mono', monospace",
+            tabSize: 4,
+            insertSpaces: true,
+          });
+          monacoReady = true;
+          monacoQueue.forEach(fn => fn());
+          monacoQueue = [];
+        });
+      }
+
+      function whenMonacoReady(fn) {
+        monacoReady ? fn() : monacoQueue.push(fn);
+      }
+
+      function setEditorContent(code) {
+        whenMonacoReady(() => {
+          monacoEditor.setValue(code || "");
+          monacoEditor.setScrollPosition({ scrollTop: 0 });
+        });
+      }
+
+      // ─── Pyodide ──────────────────────────────────────────────────────────────
+      const PYTHON_SETUP = String.raw`
+import ast, re, json, traceback, sys, io
+from typing import Optional, List, Dict, Tuple, Set, Any, Union
+from collections import deque, defaultdict, Counter
+
+class ListNode:
+    def __init__(self, val=0, next=None):
+        self.val = val
+        self.next = next
+
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+
+def _arr_to_list(arr):
+    if arr is None: return None
+    dummy = ListNode()
+    cur = dummy
+    for v in arr:
+        cur.next = ListNode(v)
+        cur = cur.next
+    return dummy.next
+
+def _list_to_arr(node):
+    res, seen = [], set()
+    while node and id(node) not in seen:
+        res.append(node.val)
+        seen.add(id(node))
+        node = node.next
+    return res
+
+def _arr_to_tree(arr):
+    if not arr or arr[0] is None: return None
+    root = TreeNode(arr[0])
+    q = deque([root])
+    i = 1
+    while q and i < len(arr):
+        node = q.popleft()
+        if i < len(arr) and arr[i] is not None:
+            node.left = TreeNode(arr[i]); q.append(node.left)
+        i += 1
+        if i < len(arr) and arr[i] is not None:
+            node.right = TreeNode(arr[i]); q.append(node.right)
+        i += 1
+    return root
+
+def _normalize(val):
+    if isinstance(val, ListNode): return _list_to_arr(val)
+    if isinstance(val, TreeNode):
+        res, q = [], deque([val])
+        while q:
+            n = q.popleft()
+            if n: res.append(n.val); q.append(n.left); q.append(n.right)
+            else: res.append(None)
+        while res and res[-1] is None: res.pop()
+        return res
+    if isinstance(val, (list, tuple)): return [_normalize(x) for x in val]
+    return val
+
+def _parse_inputs(s):
+    parts = re.split(r',\s*(?=[a-zA-Z_]\w*\s*=)', s.strip())
+    out = {}
+    for p in parts:
+        k, _, v = p.partition('=')
+        out[k.strip()] = ast.literal_eval(v.strip())
+    return out
+
+def _type_hints(code, method):
+    m = re.search(r'def\s+' + re.escape(method) + r'\s*\(self\s*,\s*(.+?)\)\s*(?:->|:)', code, re.DOTALL)
+    if not m: return {}
+    hints = {}
+    for p in re.split(r',\s*', m.group(1).strip()):
+        p = p.strip()
+        if not p: continue
+        if ':' in p:
+            name, h = p.split(':', 1)
+            h = h.split('=')[0].strip()
+            hints[name.strip()] = h
+        else:
+            hints[p.split('=')[0].strip()] = ''
+    return hints
+
+def _coerce(val, hint):
+    if 'ListNode' in hint and isinstance(val, list): return _arr_to_list(val)
+    if 'TreeNode' in hint and isinstance(val, list): return _arr_to_tree(val)
+    return val
+
+def run_cases(user_code, method_name, cases_json, capture_stdout=False):
+    cases = json.loads(cases_json)
+    ns = dict(
+        ListNode=ListNode, TreeNode=TreeNode,
+        Optional=Optional, List=List, Dict=Dict, Tuple=Tuple,
+        Set=Set, Any=Any, Union=Union,
+        defaultdict=defaultdict, Counter=Counter, deque=deque,
+        __builtins__=__builtins__,
+    )
+    try:
+        exec(compile(user_code, '<solution>', 'exec'), ns)
+    except Exception:
+        err = traceback.format_exc()
+        return json.dumps([{'status':'error','message':err,'input':c.get('input',''),'printed':''} for c in cases])
+
+    if 'Solution' not in ns:
+        msg = 'No Solution class found in your code.'
+        return json.dumps([{'status':'error','message':msg,'input':c.get('input',''),'printed':''} for c in cases])
+
+    hints = _type_hints(user_code, method_name)
+    results = []
+    for case in cases:
+        inp = case.get('input', '')
+        exp_str = case.get('output', '')
+        printed = ''
+        if capture_stdout:
+            _old = sys.stdout
+            sys.stdout = io.StringIO()
+        try:
+            raw = _parse_inputs(inp)
+            args = {k: _coerce(v, hints.get(k,'')) for k,v in raw.items()}
+            sol = ns['Solution']()
+            result = _normalize(getattr(sol, method_name)(**args))
+            if capture_stdout:
+                printed = sys.stdout.getvalue()
+                sys.stdout = _old
+            try:
+                expected = ast.literal_eval(exp_str.strip())
+            except Exception:
+                expected = exp_str.strip()
+            ok = result == expected
+            results.append({'status':'pass' if ok else 'fail','result':repr(result),'expected':repr(expected),'input':inp,'printed':printed})
+        except Exception:
+            if capture_stdout:
+                try: printed = sys.stdout.getvalue()
+                except: pass
+                try: sys.stdout = _old
+                except: pass
+            results.append({'status':'error','message':traceback.format_exc(),'input':inp,'printed':printed})
+    return json.dumps(results)
+`;
+
+      async function getPyodide() {
+        if (pyodideInstance) return pyodideInstance;
+        if (pyodideLoading) return new Promise(r => pyodideQueue.push(r));
+        pyodideLoading = true;
+        setRunStatus("Loading Python runtime (first time only)…", "loading");
+        try {
+          const py = await loadPyodide({
+            indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
+          });
+          py.runPython(PYTHON_SETUP);
+          pyodideInstance = py;
+          pyodideQueue.forEach(r => r(py));
+          pyodideQueue = [];
+          return py;
+        } catch (e) {
+          setRunStatus("Failed to load Python runtime: " + e.message, "error");
+          pyodideLoading = false;
+          throw e;
+        }
+      }
+
+      function setRunStatus(msg, type) {
+        if (!msg) { els.runStatus.classList.add("hidden"); return; }
+        els.runStatus.classList.remove("hidden");
+        const styles = {
+          loading: "bg-slate-100 text-slate-700",
+          error: "bg-rose-50 text-rose-700",
+          info: "bg-indigo-50 text-indigo-700",
+        };
+        els.runStatus.className = `mb-3 rounded-xl px-4 py-2.5 text-sm font-medium ${styles[type] || styles.info}`;
+        els.runStatus.textContent = msg;
+      }
+
+      function setBusy(busy) {
+        els.testBtn.disabled = busy;
+        els.submitBtn.disabled = busy;
+        els.testBtn.textContent = busy ? "Running…" : "▷ Test";
+        els.submitBtn.textContent = busy ? "Running…" : "✓ Submit All";
+      }
+
+      async function runTests(mode) {
+        const problem = problems.find(p => p.id === selectedProblemId);
+        if (!problem) return;
+
+        const userCode = monacoEditor ? monacoEditor.getValue() : "";
+        const entryPoint = problem.entry_point || "";
+        const methodName = entryPoint.includes(".") ? entryPoint.split(".").pop() : entryPoint;
+
+        if (!methodName) { setRunStatus("No entry_point defined for this problem.", "error"); return; }
+
+        const allCases = problem.input_output;
+        if (!allCases.length) { setRunStatus("No input/output test cases available for this problem.", "info"); return; }
+
+        const cases = mode === "test" ? allCases.slice(0, 3) : allCases;
+        const label = mode === "test" ? `first ${cases.length}` : `all ${cases.length}`;
+
+        setBusy(true);
+        els.testResults.innerHTML = "";
+        setRunStatus(`Running ${label} case${cases.length !== 1 ? "s" : ""}…`, "loading");
+
+        let py;
+        try { py = await getPyodide(); } catch { setBusy(false); return; }
+
+        // Yield to UI thread, then run
+        await new Promise(r => setTimeout(r, 20));
+
+        try {
+          py.globals.set("_user_code", userCode);
+          py.globals.set("_method", methodName);
+          py.globals.set("_cases_json", JSON.stringify(cases));
+          py.globals.set("_capture", mode === "test");
+          const raw = py.runPython("run_cases(_user_code, _method, _cases_json, _capture)");
+          const results = JSON.parse(raw);
+          renderTestResults(results, mode);
+        } catch (e) {
+          setRunStatus("Execution error: " + e.message, "error");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function renderTestResults(results, mode) {
+        const total = results.length;
+        const passed = results.filter(r => r.status === "pass").length;
+        const failed = results.filter(r => r.status === "fail").length;
+        const errors = results.filter(r => r.status === "error").length;
+        const allOk = passed === total;
+
+        const summaryBg = allOk
+          ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+          : "bg-rose-50 border border-rose-200 text-rose-800";
+
+        let html = `
+          <div class="rounded-xl px-4 py-3 ${summaryBg} flex items-center gap-3 mb-4">
+            <span class="text-xl">${allOk ? "✓" : "✗"}</span>
+            <div>
+              <p class="font-bold text-sm">${allOk ? "All cases passed!" : `${passed} / ${total} passed`}</p>
+              ${!allOk ? `<p class="text-xs opacity-75">${failed} wrong answer${failed !== 1 ? "s" : ""}, ${errors} error${errors !== 1 ? "s" : ""}</p>` : ""}
+            </div>
+          </div>
+          <div class="space-y-2">`;
+
+        results.forEach((r, i) => {
+          const label = `Case ${i + 1}`;
+          const printedHtml = r.printed
+            ? `<div class="mt-2 rounded-lg bg-slate-900 px-3 py-2">
+                <span class="text-xs font-semibold text-slate-400">stdout</span>
+                <pre class="mt-1 text-xs text-slate-200 whitespace-pre-wrap">${escapeHtml(r.printed.trimEnd())}</pre>
+               </div>`
+            : "";
+
+          if (r.status === "pass") {
+            html += `
+              <div class="rounded-lg bg-emerald-50 px-3 py-2 text-xs">
+                <div class="flex items-center gap-3">
+                  <span class="shrink-0 font-bold text-emerald-700">✓ ${label}</span>
+                  <code class="truncate font-mono text-slate-600 opacity-80">${escapeHtml(r.input)}</code>
+                </div>
+                ${printedHtml}
+              </div>`;
+          } else if (r.status === "fail") {
+            html += `
+              <div class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                <p class="mb-2 text-sm font-bold text-rose-800">✗ ${label}</p>
+                <div class="space-y-1 font-mono text-xs">
+                  <div><span class="text-slate-500 inline-block w-20">Input</span><code class="text-slate-800">${escapeHtml(r.input)}</code></div>
+                  <div><span class="text-slate-500 inline-block w-20">Expected</span><code class="text-emerald-700">${escapeHtml(r.expected)}</code></div>
+                  <div><span class="text-slate-500 inline-block w-20">Got</span><code class="text-rose-700">${escapeHtml(r.result)}</code></div>
+                </div>
+                ${printedHtml}
+              </div>`;
+          } else {
+            const msg = (r.message || "Unknown error").trim();
+            html += `
+              <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p class="mb-2 text-sm font-bold text-amber-800">⚠ ${label} — Runtime Error</p>
+                ${printedHtml}
+                <pre class="max-h-40 overflow-auto rounded-lg bg-amber-100 p-2 text-xs text-amber-900 whitespace-pre-wrap">${escapeHtml(msg)}</pre>
+              </div>`;
+          }
+        });
+
+        html += "</div>";
+        els.testResults.innerHTML = html;
+        setRunStatus("", "");
+      }
+
+      // ─── Rendering ────────────────────────────────────────────────────────────
+      function renderFilters() {
+        const difficulties = [...new Set(problems.map(p => p.difficulty))].sort();
+        const tags = [...new Set(problems.flatMap(p => p.tags))].sort();
+
+        els.difficultyFilter.innerHTML =
+          '<option value="all">All</option>' +
+          difficulties.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
+
+        els.tagFilter.innerHTML =
+          '<option value="all">All</option>' +
+          tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+
+        els.totalProblems.textContent = problems.length;
+        els.tagCount.textContent = tags.length;
+      }
+
+      function getFilteredProblems() {
+        const search = els.searchBox.value.trim().toLowerCase();
+        const difficulty = els.difficultyFilter.value;
+        const tag = els.tagFilter.value;
+        return problems.filter(p => {
+          const s = [p.task_id, p.question_id, p.title, p.difficulty, p.problem_description, p.tags.join(" ")].join(" ").toLowerCase();
+          return (!search || s.includes(search)) &&
+            (difficulty === "all" || p.difficulty === difficulty) &&
+            (tag === "all" || p.tags.includes(tag));
+        });
+      }
+
+      function renderProblemList() {
+        const filtered = getFilteredProblems();
+        els.visibleProblems.textContent = filtered.length;
+
+        if (!filtered.length) {
+          els.problemList.innerHTML = `
+            <div class="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
+              No problems match your filters.
+            </div>`;
+          els.problemDetail.innerHTML = emptyState();
+          els.codeEditorSection.classList.add("hidden");
+          els.extraSections.classList.add("hidden");
+          return;
+        }
+
+        if (!filtered.some(p => p.id === selectedProblemId)) {
+          selectedProblemId = filtered[0].id;
+        }
+
+        els.problemList.innerHTML = filtered.map(p => {
+          const active = p.id === selectedProblemId;
+          return `
+            <button
+              class="w-full rounded-2xl border p-4 text-left transition ${active ? "border-indigo-300 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-200 hover:bg-slate-50"}"
+              onclick="selectProblem('${escapeHtml(p.id)}')"
+            >
+              <div class="mb-2 flex items-start justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">#${escapeHtml(p.question_id ?? "-")} · ${escapeHtml(p.task_id || "")}</p>
+                  <h3 class="mt-1 font-bold text-slate-900">${escapeHtml(p.title)}</h3>
+                </div>
+                <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${difficultyClass(p.difficulty)}">${escapeHtml(p.difficulty)}</span>
+              </div>
+              <p class="line-clamp-2 text-sm leading-6 text-slate-600">${escapeHtml(p.problem_description).slice(0, 170)}…</p>
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                ${p.tags.slice(0, 4).map(t => `<span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">${escapeHtml(t)}</span>`).join("")}
+              </div>
+            </button>`;
+        }).join("");
+
+        const selected = problems.find(p => p.id === selectedProblemId);
+        renderProblemDetail(selected);
+      }
+
+      function renderProblemDetail(problem) {
+        if (!problem) {
+          els.problemDetail.innerHTML = emptyState();
+          els.codeEditorSection.classList.add("hidden");
+          els.extraSections.classList.add("hidden");
+          return;
+        }
+
+        // Problem statement card
+        els.problemDetail.innerHTML = `
+          <div class="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-6 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div class="mb-3 flex flex-wrap items-center gap-2">
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600">Question #${escapeHtml(problem.question_id ?? "-")}</span>
+                <span class="rounded-full px-3 py-1 text-xs font-bold ring-1 ${difficultyClass(problem.difficulty)}">${escapeHtml(problem.difficulty)}</span>
+                ${problem.entry_point ? `<span class="rounded-full bg-indigo-50 px-3 py-1 text-xs font-mono font-semibold text-indigo-700 ring-1 ring-indigo-200">${escapeHtml(problem.entry_point)}</span>` : ""}
+              </div>
+              <h2 class="text-3xl font-bold tracking-tight text-slate-950">${escapeHtml(problem.title)}</h2>
+              <p class="mt-2 text-sm text-slate-500">Task ID: <span class="font-mono">${escapeHtml(problem.task_id)}</span></p>
+            </div>
+            <div class="flex flex-wrap gap-2 lg:justify-end">
+              ${problem.tags.map(t => `<span class="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">${escapeHtml(t)}</span>`).join("")}
+            </div>
+          </div>
+          <article class="prose prose-slate max-w-none">
+            ${formatProblemDescription(problem.problem_description)}
+          </article>
+          ${renderIoCases(problem.input_output)}`;
+
+        // Code editor card
+        currentStarterCode = problem.starter_code || "";
+        setEditorContent(currentStarterCode);
+
+        const wasHidden = els.codeEditorSection.classList.contains("hidden");
+        els.codeEditorSection.classList.remove("hidden");
+        els.testResults.innerHTML = "";
+        setRunStatus("", "");
+
+        if (wasHidden) {
+          whenMonacoReady(() => monacoEditor && monacoEditor.layout());
+        }
+
+        // Extra sections card (reference solution, tests, etc.)
+        const extras = [
+          codeBlock("Reference Solution", problem.completion),
+          codeBlock("Hidden / Public Tests", problem.test),
+          codeBlock("Original Prompt", problem.query),
+          codeBlock("Model Response", problem.response),
+        ].filter(Boolean).join("");
+
+        if (extras) {
+          els.extraSectionsContent.innerHTML = extras;
+          els.extraSections.classList.remove("hidden");
+        } else {
+          els.extraSections.classList.add("hidden");
+        }
+      }
+
+      function renderIoCases(cases) {
+        if (!cases || !cases.length) return "";
+        return `
+          <section class="mt-8">
+            <div class="mb-3 flex items-center justify-between">
+              <h3 class="text-xl font-bold text-slate-950">Input / Output Cases</h3>
+              <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">${cases.length} case${cases.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div class="max-w-full overflow-x-auto rounded-2xl border border-slate-200">
+              <table class="w-full min-w-[38rem] text-left text-sm">
+                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr><th class="px-4 py-3">Input</th><th class="px-4 py-3">Expected Output</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">
+                  ${cases.map(io => `
+                    <tr class="align-top">
+                      <td class="w-1/2 px-4 py-3"><code class="block max-w-full whitespace-pre-wrap break-words rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs text-slate-800">${escapeHtml(io.input)}</code></td>
+                      <td class="w-1/2 px-4 py-3"><code class="block max-w-full whitespace-pre-wrap break-words rounded-lg bg-emerald-50 px-2 py-1 font-mono text-xs text-emerald-800">${escapeHtml(io.output)}</code></td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>
+            </div>
+          </section>`;
+      }
+
+      function emptyState() {
+        return `
+          <div class="flex min-h-[60vh] items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <div>
+              <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm">⌘</div>
+              <h2 class="text-xl font-bold text-slate-900">Select a problem</h2>
+              <p class="mt-2 max-w-md text-sm leading-6 text-slate-500">Use the list, search box, or filters to open a formatted LeetCode problem.</p>
+            </div>
+          </div>`;
+      }
+
+      // ─── Event handlers ───────────────────────────────────────────────────────
+      function selectProblem(id) {
+        selectedProblemId = id;
+        renderProblemList();
+      }
+
+      els.searchBox.addEventListener("input", renderProblemList);
+      els.difficultyFilter.addEventListener("change", renderProblemList);
+      els.tagFilter.addEventListener("change", renderProblemList);
+      els.resetFilters.addEventListener("click", () => {
+        els.searchBox.value = "";
+        els.difficultyFilter.value = "all";
+        els.tagFilter.value = "all";
+        renderProblemList();
+      });
+      els.testBtn.addEventListener("click", () => runTests("test"));
+      els.submitBtn.addEventListener("click", () => runTests("submit"));
+      els.resetCodeBtn.addEventListener("click", () => {
+        setEditorContent(currentStarterCode);
+        els.testResults.innerHTML = "";
+        setRunStatus("", "");
+      });
+
+      // ─── Init ─────────────────────────────────────────────────────────────────
+      async function loadProblemsFromJsonFile(url = "./problems.json") {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const raw = await res.json();
+          problems = normalizeProblems(Array.isArray(raw) ? raw : raw.problems || []);
+          selectedProblemId = problems[0]?.id;
+          renderFilters();
+          renderProblemList();
+        } catch (_) {}
+      }
+
+      initMonaco();
+      renderFilters();
+      renderProblemList();
+      loadProblemsFromJsonFile("./problems.json");
+    </script>
+  </body>
+</html>
